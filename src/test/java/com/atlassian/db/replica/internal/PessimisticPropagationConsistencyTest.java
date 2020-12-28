@@ -1,7 +1,8 @@
 package com.atlassian.db.replica.internal;
 
+import com.atlassian.db.replica.api.Cache;
+import com.atlassian.db.replica.api.ReplicaConsistency;
 import com.atlassian.db.replica.internal.util.ConnectionSupplier;
-import com.atlassian.db.replica.spi.*;
 import org.junit.*;
 import org.threeten.extra.*;
 

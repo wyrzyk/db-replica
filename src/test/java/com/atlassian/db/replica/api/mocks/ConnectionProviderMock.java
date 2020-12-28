@@ -1,6 +1,6 @@
 package com.atlassian.db.replica.api.mocks;
 
-import com.atlassian.db.replica.spi.ConnectionProvider;
+import com.atlassian.db.replica.api.ConnectionProvider;
 import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 

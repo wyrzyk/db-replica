@@ -1,7 +1,6 @@
 package com.atlassian.db.replica.api;
 
 import com.atlassian.db.replica.api.mocks.*;
-import com.atlassian.db.replica.spi.DualCall;
 import org.junit.Test;
 import org.mockito.Mockito;
 

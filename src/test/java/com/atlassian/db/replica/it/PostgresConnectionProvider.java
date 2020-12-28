@@ -1,6 +1,6 @@
 package com.atlassian.db.replica.it;
 
-import com.atlassian.db.replica.spi.*;
+import com.atlassian.db.replica.api.ConnectionProvider;
 import com.github.dockerjava.api.*;
 import com.github.dockerjava.api.command.*;
 import com.github.dockerjava.api.model.*;

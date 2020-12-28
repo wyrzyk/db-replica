@@ -1,6 +1,6 @@
 package com.atlassian.db.replica.api.mocks;
 
-import com.atlassian.db.replica.spi.*;
+import com.atlassian.db.replica.api.ReplicaConsistency;
 
 import java.sql.*;
 import java.util.function.Supplier;

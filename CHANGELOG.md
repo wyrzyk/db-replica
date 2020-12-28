@@ -5,7 +5,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## API
-The API consists of all public Java types from `com.atlassian.db.replica.api`, `com.atlassian.db.replica.spi` and their subpackages:
+The API consists of all public Java types from `com.atlassian.db.replica.api` and its subpackages:
 
   * [source compatibility]
   * [binary compatibility]

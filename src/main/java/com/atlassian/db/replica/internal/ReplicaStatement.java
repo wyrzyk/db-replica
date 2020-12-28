@@ -1,8 +1,8 @@
 package com.atlassian.db.replica.internal;
 
 import com.atlassian.db.replica.api.SqlCall;
-import com.atlassian.db.replica.spi.DualCall;
-import com.atlassian.db.replica.spi.ReplicaConsistency;
+import com.atlassian.db.replica.api.DualCall;
+import com.atlassian.db.replica.api.ReplicaConsistency;
 
 import java.sql.Connection;
 import java.sql.ResultSet;

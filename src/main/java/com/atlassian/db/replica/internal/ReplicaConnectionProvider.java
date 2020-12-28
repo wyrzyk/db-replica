@@ -1,7 +1,7 @@
 package com.atlassian.db.replica.internal;
 
-import com.atlassian.db.replica.spi.ConnectionProvider;
-import com.atlassian.db.replica.spi.ReplicaConsistency;
+import com.atlassian.db.replica.api.ConnectionProvider;
+import com.atlassian.db.replica.api.ReplicaConsistency;
 
 import java.sql.Connection;
 import java.sql.SQLException;

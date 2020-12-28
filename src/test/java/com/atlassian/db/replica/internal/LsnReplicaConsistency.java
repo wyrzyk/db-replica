@@ -1,7 +1,8 @@
 package com.atlassian.db.replica.internal;
 
+import com.atlassian.db.replica.api.Cache;
+import com.atlassian.db.replica.api.ReplicaConsistency;
 import com.atlassian.db.replica.internal.util.ThreadSafe;
-import com.atlassian.db.replica.spi.*;
 import org.postgresql.replication.LogSequenceNumber;
 
 import java.sql.Connection;

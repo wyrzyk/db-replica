@@ -5,10 +5,7 @@ import com.atlassian.db.replica.internal.*;
 import com.atlassian.db.replica.internal.circuitbreaker.BreakOnNotSupportedOperations;
 import com.atlassian.db.replica.internal.circuitbreaker.BreakerConnection;
 import com.atlassian.db.replica.internal.circuitbreaker.BreakerHandler;
-import com.atlassian.db.replica.spi.ConnectionProvider;
-import com.atlassian.db.replica.spi.DualCall;
-import com.atlassian.db.replica.spi.ReplicaConsistency;
-import com.atlassian.db.replica.spi.circuitbreaker.CircuitBreaker;
+import com.atlassian.db.replica.api.circuitbreaker.CircuitBreaker;
 
 import java.sql.*;
 import java.util.HashMap;

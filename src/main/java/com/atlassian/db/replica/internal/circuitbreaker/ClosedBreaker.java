@@ -1,7 +1,7 @@
 package com.atlassian.db.replica.internal.circuitbreaker;
 
 import com.atlassian.db.replica.api.circuitbreaker.BreakerState;
-import com.atlassian.db.replica.spi.circuitbreaker.CircuitBreaker;
+import com.atlassian.db.replica.api.circuitbreaker.CircuitBreaker;
 
 public class ClosedBreaker implements CircuitBreaker {
     @Override

@@ -1,7 +1,6 @@
 package com.atlassian.db.replica.api;
 
 import com.atlassian.db.replica.api.mocks.ConnectionProviderMock;
-import com.atlassian.db.replica.spi.ReplicaConsistency;
 import org.junit.Test;
 
 import java.sql.Connection;

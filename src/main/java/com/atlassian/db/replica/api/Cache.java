@@ -1,4 +1,4 @@
-package com.atlassian.db.replica.spi;
+package com.atlassian.db.replica.api;
 
 import com.atlassian.db.replica.internal.*;
 

@@ -1,10 +1,10 @@
 package com.atlassian.db.replica.internal;
 
-import com.atlassian.db.replica.spi.*;
+import com.atlassian.db.replica.api.Cache;
+import com.atlassian.db.replica.api.ReplicaConsistency;
 
 import java.sql.*;
 import java.time.*;
-import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
