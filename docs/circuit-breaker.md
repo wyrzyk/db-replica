@@ -3,8 +3,8 @@ by `ConnectionProvider`. Creation of DualConnection is guarded by `CircuitBreake
 If the circuit breaker doesn't allow to create a new `DualConnection`, the `DualConnection#Builder` will return main
 the connection provided by `ConnectionProvider`.
 
-Every call to the database goes through `CircuitBreaker#handle` method. `CircuitBreaker` is responsible for executing the call
-by invoking `SqlCall#call` or `SqlRun#run` method and handling the exceptions.
+Every call to the database goes through `DualCall` implementation. `DualCall` is responsible for executing the call
+by invoking `SqlCall#call`. `DualCall` can affect `CircuitBreaker` state while handling the exceptions.
 
 
 

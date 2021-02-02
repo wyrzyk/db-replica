@@ -10,15 +10,18 @@ builder :  Connection build()
 
 interface CircuitBreaker {
     boolean canCreateDualConnection()
-    <T> T handle(SqlCall<T> call)
-    void handle(SqlRun run)
 }
 
 interface ConnectionProvider {
   Connection getMainConnection()
 }
 
+interface DualCall {
+    callReplica(final SqlCall<T> call)
+    T callMain(final SqlCall<T> call)
+}
 
+DualCall *-- CircuitBreaker : contains
 interface Connection
 DualConnection --|> Connection
 
@@ -26,7 +29,7 @@ builder::build --> CircuitBreaker::canCreateDualConnection : can create dual con
 CircuitBreaker::canCreateDualConnection --> ConnectionProvider::getMainConnection : No
 CircuitBreaker::canCreateDualConnection --> DualConnection : Yes
 
-DualConnection::executeXYZ --> CircuitBreaker::handle : handle SQL execution
+DualConnection::executeXYZ --> DualCall : handle SQL call
 
 @enduml
 
