@@ -1,0 +1,34 @@
+@startuml
+
+@startuml
+
+class "DualConnection#Builder" as builder
+class DualConnection {
+    executeXYZ()
+}
+builder :  Connection build()
+
+interface CircuitBreaker {
+    boolean canCreateDualConnection()
+    <T> T handle(SqlCall<T> call)
+    void handle(SqlRun run)
+}
+
+interface ConnectionProvider {
+  Connection getMainConnection()
+}
+
+
+interface Connection
+DualConnection --|> Connection
+
+builder::build --> CircuitBreaker::canCreateDualConnection : can create dual connection?
+CircuitBreaker::canCreateDualConnection --> ConnectionProvider::getMainConnection : No
+CircuitBreaker::canCreateDualConnection --> DualConnection : Yes
+
+DualConnection::executeXYZ --> CircuitBreaker::handle : handle SQL execution
+
+@enduml
+
+
+@enduml
