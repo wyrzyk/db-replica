@@ -1,5 +1,7 @@
 package com.atlassian.db.replica.internal;
 
+import com.atlassian.db.replica.api.context.QueryContext;
+import com.atlassian.db.replica.api.context.Reason;
 import com.atlassian.db.replica.api.state.State;
 import com.atlassian.db.replica.internal.state.ConnectionState;
 import com.atlassian.db.replica.spi.ConnectionProvider;
@@ -37,8 +39,8 @@ public class ReplicaConnectionProvider implements AutoCloseable {
         return state.getWriteConnection();
     }
 
-    public Connection getReadConnection() throws SQLException {
-        return state.getReadConnection();
+    public Connection getReadConnection(QueryContext.Builder contextBuilder) throws SQLException {
+        return state.getReadConnection(contextBuilder);
     }
 
     public void setTransactionIsolation(Integer transactionIsolation) {
@@ -80,7 +82,7 @@ public class ReplicaConnectionProvider implements AutoCloseable {
     public void setReadOnly(boolean readOnly) throws SQLException {
         isReadOnly = readOnly;
         if (readOnly) {
-            state.getReadConnection().setReadOnly(isReadOnly);
+            state.getReadConnection(QueryContext.builder(Reason.API_CALL,false)).setReadOnly(isReadOnly);
         } else {
             state.getWriteConnection().setReadOnly(isReadOnly);
         }
@@ -139,7 +141,7 @@ public class ReplicaConnectionProvider implements AutoCloseable {
     }
 
     public <T> T unwrap(Class<T> iface) throws SQLException {
-        final Connection currentConnection = state.getReadConnection();
+        final Connection currentConnection = state.getReadConnection(QueryContext.builder(Reason.API_CALL,false));
         if (iface.isAssignableFrom(currentConnection.getClass())) {
             return iface.cast(currentConnection);
         } else {
@@ -148,7 +150,7 @@ public class ReplicaConnectionProvider implements AutoCloseable {
     }
 
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
-        final Connection currentConnection = state.getReadConnection();
+        final Connection currentConnection = state.getReadConnection(QueryContext.builder(Reason.API_CALL,false));
         if (iface.isAssignableFrom(currentConnection.getClass())) {
             return true;
         } else {

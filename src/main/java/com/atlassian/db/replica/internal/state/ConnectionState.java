@@ -1,5 +1,6 @@
 package com.atlassian.db.replica.internal.state;
 
+import com.atlassian.db.replica.api.context.QueryContext;
 import com.atlassian.db.replica.api.state.State;
 import com.atlassian.db.replica.internal.ConnectionParameters;
 import com.atlassian.db.replica.internal.LazyReference;
@@ -13,6 +14,7 @@ import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.util.Optional;
 
+import static com.atlassian.db.replica.api.context.Reason.*;
 import static com.atlassian.db.replica.api.state.State.CLOSED;
 import static com.atlassian.db.replica.api.state.State.MAIN;
 import static com.atlassian.db.replica.api.state.State.NOT_INITIALISED;
@@ -92,9 +94,9 @@ public final class ConnectionState {
     /**
      * Provides a connection that will be used for reading operation. Will use read-replica if possible.
      */
-    public Connection getReadConnection() throws SQLException {
+    public Connection getReadConnection(QueryContext.Builder contextBuilder) throws SQLException {
         final State stateBefore = getState();
-        final Connection connection = prepareReadConnection();
+        final Connection connection = prepareReadConnection(contextBuilder);
         final State stateAfter = getState();
         if (!stateAfter.equals(stateBefore)) {
             stateListener.transition(stateBefore, stateAfter);
@@ -156,11 +158,13 @@ public final class ConnectionState {
     /**
      * Provides a connection that will be used for reading operation. Will use read-replica if possible.
      */
-    private Connection prepareReadConnection() throws SQLException {
+    private Connection prepareReadConnection(QueryContext.Builder contextBuilder) throws SQLException {
         if (parameters.getTransactionIsolation() != null && parameters.getTransactionIsolation() > Connection.TRANSACTION_READ_COMMITTED) {
+            contextBuilder.reason(HIGH_TRANSACTION_ISOLATION_LEVEL).runOnMain(true);
             return prepareMainConnection();
         }
         if (getState().equals(MAIN)) {
+            contextBuilder.reason(MAIN_CONNECTION_REUSE).runOnMain(true);
             return writeConnection.get();
         }
         final boolean isNotInitialised = getState().equals(NOT_INITIALISED);
@@ -175,6 +179,7 @@ public final class ConnectionState {
             return readConnection.get();
         } else {
             replicaConsistent = false;
+            contextBuilder.reason(REPLICA_INCONSISTENT).runOnMain(true);
             return prepareMainConnection();
         }
     }

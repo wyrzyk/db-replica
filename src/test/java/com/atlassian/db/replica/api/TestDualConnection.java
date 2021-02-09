@@ -1,12 +1,14 @@
 package com.atlassian.db.replica.api;
 
+import com.atlassian.db.replica.api.context.QueryContext;
+import com.atlassian.db.replica.api.context.Reason;
 import com.atlassian.db.replica.api.mocks.ConnectionMock;
 import com.atlassian.db.replica.api.mocks.ConnectionProviderMock;
 import com.atlassian.db.replica.api.mocks.NoOpConnection;
 import com.atlassian.db.replica.api.mocks.NoOpConnectionProvider;
 import com.atlassian.db.replica.api.mocks.ReadOnlyAwareConnection;
 import com.atlassian.db.replica.api.mocks.SingleConnectionProvider;
-import com.atlassian.db.replica.spi.DualCall;
+import com.atlassian.db.replica.spi.DatabaseCall;
 import com.atlassian.db.replica.spi.ReplicaConsistency;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -30,6 +32,7 @@ import static java.sql.Connection.TRANSACTION_SERIALIZABLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.anyBoolean;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
@@ -214,6 +217,23 @@ public class TestDualConnection {
     }
 
     @Test
+    public void shouldLockForSelectForUpdate() throws SQLException {
+        final ConnectionProviderMock connectionProvider = new ConnectionProviderMock();
+        final DatabaseCall databaseCall = mock(DatabaseCall.class);
+        final Connection connection = DualConnection.builder(
+            connectionProvider,
+            permanentConsistency().build()
+        ).databaseCall(databaseCall)
+            .build();
+
+        connection.prepareStatement(SELECT_FOR_UPDATE).executeQuery();
+        verify(databaseCall).call(
+            any(),
+            eq(QueryContext.builder(Reason.LOCK, true).sql(SELECT_FOR_UPDATE).build())
+        );
+    }
+
+    @Test
     public void shouldUseMainConnectionForSelectFunctionCalls() throws SQLException {
         final ConnectionProviderMock connectionProvider = new ConnectionProviderMock();
         final Connection connection = DualConnection.builder(
@@ -229,6 +249,25 @@ public class TestDualConnection {
 
         assertThat(connectionProvider.getProvidedConnectionTypes())
             .containsOnly(MAIN);
+    }
+
+    @Test
+    public void shouldDetectWriteOperation() throws SQLException {
+        final ConnectionProviderMock connectionProvider = new ConnectionProviderMock();
+        final DatabaseCall databaseCall = mock(DatabaseCall.class);
+        final Connection connection = DualConnection.builder(
+            connectionProvider,
+            permanentConsistency().build()
+        ).databaseCall(databaseCall)
+            .build();
+
+        final String sql = "SELECT doSomething(1234)";
+
+        connection.prepareStatement(sql).executeQuery();
+
+        assertThat(connectionProvider.getProvidedConnectionTypes())
+            .containsOnly(MAIN);
+        verify(databaseCall).call(any(), eq(QueryContext.builder(Reason.WRITE_OPERATION, true).sql(sql).build()));
     }
 
     @Test
@@ -603,58 +642,78 @@ public class TestDualConnection {
     }
 
     @Test
-    public void shouldExecuteOnReplica() throws SQLException {
+    public void shouldExecuteReadOperationOnReplica() throws SQLException {
         final ConnectionProviderMock connectionProvider = new ConnectionProviderMock();
-        final DualCall dualCall = mock(DualCall.class);
+        final DatabaseCall databaseCall = mock(DatabaseCall.class);
         final Connection connection = DualConnection
             .builder(connectionProvider, permanentConsistency().build())
-            .dualCall(dualCall)
+            .databaseCall(databaseCall)
             .build();
 
         connection.prepareStatement(SIMPLE_QUERY).executeQuery();
 
         assertThat(connectionProvider.getProvidedConnectionTypes())
             .containsOnly(REPLICA);
-        verify(dualCall).callReplica(any());
-        verify(dualCall, never()).callMain(any());
+        verify(databaseCall).call(
+            any(),
+            eq(QueryContext.builder(Reason.READ_OPERATION, false).sql(SIMPLE_QUERY).build())
+        );
     }
 
     @Test
     public void shouldExecuteOnMainWhenNotConsistent() throws SQLException {
         final ConnectionProviderMock connectionProvider = new ConnectionProviderMock();
-        final DualCall dualCall = mock(DualCall.class);
+        final DatabaseCall databaseCall = mock(DatabaseCall.class);
         final ReplicaConsistency consistency = permanentInconsistency().build();
         final Connection connection = DualConnection
             .builder(connectionProvider, consistency)
-            .dualCall(dualCall)
+            .databaseCall(databaseCall)
             .build();
 
         connection.prepareStatement(SIMPLE_QUERY).executeQuery();
 
         assertThat(connectionProvider.getProvidedConnectionTypes())
             .containsOnly(REPLICA, MAIN);
-        verify(dualCall).callMain(any());
-        verify(dualCall, never()).callReplica(any());
+        verify(databaseCall).call(
+            any(),
+            eq(QueryContext.builder(Reason.REPLICA_INCONSISTENT, true).sql(SIMPLE_QUERY).build())
+        );
     }
 
     @Test
-    public void shouldExecuteOnMain() throws SQLException {
+    public void shouldExecuteUpdateOnMain() throws SQLException {
         final ConnectionProviderMock connectionProvider = new ConnectionProviderMock();
-        final DualCall dualCall = mock(DualCall.class);
-        when(dualCall.callMain(any())).thenReturn(1);
+        final DatabaseCall databaseCall = mock(DatabaseCall.class);
+        when(databaseCall.call(any(), any())).thenReturn(1);
         final Connection connection = DualConnection
             .builder(connectionProvider, permanentConsistency().build())
-            .dualCall(dualCall)
+            .databaseCall(databaseCall)
             .build();
 
         connection.prepareStatement(SIMPLE_QUERY).executeUpdate();
 
         assertThat(connectionProvider.getProvidedConnectionTypes())
             .containsOnly(MAIN);
-        verify(dualCall, never()).callReplica(any());
-        verify(dualCall).callMain(any());
+        verify(databaseCall).call(any(), eq(QueryContext.builder(Reason.API_CALL, true).sql(SIMPLE_QUERY).build()));
     }
 
+    @Test
+    public void shouldReuseMainConnection() throws SQLException {
+        final ConnectionProviderMock connectionProvider = new ConnectionProviderMock();
+        final DatabaseCall databaseCall = mock(DatabaseCall.class);
+        when(databaseCall.call(any(), any())).thenReturn(1);
+        final Connection dualConnection = DualConnection.builder(
+            connectionProvider,
+            permanentConsistency().build()
+        ).databaseCall(databaseCall)
+            .build();
+        dualConnection.prepareStatement(SIMPLE_QUERY).executeUpdate();
+        Mockito.reset(databaseCall);
+
+        dualConnection.prepareStatement(SIMPLE_QUERY).executeQuery();
+
+        verify(databaseCall).call(any(), eq(QueryContext.builder(Reason.MAIN_CONNECTION_REUSE, true).sql(SIMPLE_QUERY).build()));
+    }
 
     @Test
     public void shouldUsePrepareNewStatement() throws SQLException {
@@ -778,15 +837,18 @@ public class TestDualConnection {
     @Test
     public void shouldSetTransactionIsolationLevel() throws SQLException {
         final ConnectionProviderMock connectionProvider = new ConnectionProviderMock();
+        final DatabaseCall databaseCall = mock(DatabaseCall.class);
         final Connection connection = DualConnection.builder(
             connectionProvider,
             permanentInconsistency().build()
-        ).build();
+        ).databaseCall(databaseCall)
+            .build();
 
         connection.setTransactionIsolation(TRANSACTION_SERIALIZABLE);
         connection.prepareStatement(SIMPLE_QUERY).executeQuery();
 
         verify(connectionProvider.singleProvidedConnection()).setTransactionIsolation(TRANSACTION_SERIALIZABLE);
+        verify(databaseCall).call(any(), eq(QueryContext.builder(Reason.HIGH_TRANSACTION_ISOLATION_LEVEL, true).sql(SIMPLE_QUERY).build()));
     }
 
     @Test

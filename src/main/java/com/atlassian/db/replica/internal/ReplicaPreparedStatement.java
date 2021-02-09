@@ -1,29 +1,18 @@
 package com.atlassian.db.replica.internal;
 
-import com.atlassian.db.replica.spi.DualCall;
+import com.atlassian.db.replica.api.context.QueryContext;
+import com.atlassian.db.replica.api.context.Reason;
+import com.atlassian.db.replica.spi.DatabaseCall;
 import com.atlassian.db.replica.spi.ReplicaConsistency;
 
 import java.io.InputStream;
 import java.io.Reader;
 import java.math.BigDecimal;
 import java.net.URL;
-import java.sql.Array;
-import java.sql.Blob;
-import java.sql.Clob;
-import java.sql.Connection;
-import java.sql.Date;
-import java.sql.NClob;
-import java.sql.ParameterMetaData;
-import java.sql.PreparedStatement;
-import java.sql.Ref;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.RowId;
-import java.sql.SQLException;
-import java.sql.SQLXML;
-import java.sql.Time;
-import java.sql.Timestamp;
+import java.sql.*;
 import java.util.Calendar;
+
+import static com.atlassian.db.replica.api.context.Reason.API_CALL;
 
 public class ReplicaPreparedStatement extends ReplicaStatement implements PreparedStatement {
     private final String sql;
@@ -37,7 +26,7 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
     protected ReplicaPreparedStatement(
         ReplicaConnectionProvider connectionProvider,
         ReplicaConsistency consistency,
-        DualCall dualCall,
+        DatabaseCall databaseCall,
         String sql,
         Integer resultSetType,
         Integer resultSetConcurrency,
@@ -46,7 +35,7 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
         String[] columnNames,
         int[] columnIndexes
     ) {
-        super(consistency, connectionProvider, dualCall, resultSetType, resultSetConcurrency, resultSetHoldability);
+        super(consistency, connectionProvider, databaseCall, resultSetType, resultSetConcurrency, resultSetHoldability);
         this.sql = sql;
         this.resultSetType = resultSetType;
         this.resultSetConcurrency = resultSetConcurrency;
@@ -59,13 +48,13 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
     protected ReplicaPreparedStatement(
         ReplicaConnectionProvider connectionProvider,
         ReplicaConsistency consistency,
-        DualCall dualCall,
+        DatabaseCall databaseCall,
         String sql,
         Integer resultSetType,
         Integer resultSetConcurrency,
         Integer resultSetHoldability
     ) {
-        super(consistency, connectionProvider, dualCall, resultSetType, resultSetConcurrency, resultSetHoldability);
+        super(consistency, connectionProvider, databaseCall, resultSetType, resultSetConcurrency, resultSetHoldability);
         this.sql = sql;
         this.resultSetType = resultSetType;
         this.resultSetConcurrency = resultSetConcurrency;
@@ -78,22 +67,33 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
     @Override
     public ResultSet executeQuery() throws SQLException {
         checkClosed();
-        final PreparedStatement statement = getReadStatement(sql);
-        return execute(statement::executeQuery);
+        final QueryContext.Builder contextBuilder = QueryContext.builder(Reason.READ_OPERATION, false).sql(sql);
+        final PreparedStatement statement = getReadStatement(sql, contextBuilder);
+        return execute(statement::executeQuery, contextBuilder.build());
     }
 
     @Override
     public int executeUpdate() throws SQLException {
         checkClosed();
         final PreparedStatement statement = getWriteStatement();
-        return execute(statement::executeUpdate);
+        return execute(
+            statement::executeUpdate,
+            QueryContext.builder(API_CALL, true)
+                .sql(sql)
+                .build()
+        );
     }
 
     @Override
     public long executeLargeUpdate() throws SQLException {
         checkClosed();
         final PreparedStatement statement = getWriteStatement();
-        return execute(statement::executeLargeUpdate);
+        return execute(
+            statement::executeLargeUpdate,
+            QueryContext.builder(API_CALL, true)
+                .sql(sql)
+                .build()
+        );
     }
 
     @Override
@@ -261,7 +261,12 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
     public boolean execute() throws SQLException {
         checkClosed();
         final PreparedStatement statement = getWriteStatement();
-        return execute(statement::execute);
+        return execute(
+            statement::execute,
+            QueryContext.builder(API_CALL, true)
+                .sql(sql)
+                .build()
+        );
     }
 
     @Override
@@ -544,8 +549,8 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
     }
 
     @Override
-    public PreparedStatement getReadStatement(String sql) {
-        return (PreparedStatement) super.getReadStatement(sql);
+    public PreparedStatement getReadStatement(String sql, QueryContext.Builder contextBuilder) {
+        return (PreparedStatement) super.getReadStatement(sql, contextBuilder);
     }
 
     @Override
@@ -572,7 +577,7 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
     public static class Builder {
         private final ReplicaConnectionProvider connectionProvider;
         private final ReplicaConsistency consistency;
-        private final DualCall dualCall;
+        private final DatabaseCall databaseCall;
         private final String sql;
         private Integer resultSetType;
         private Integer resultSetConcurrency;
@@ -584,12 +589,12 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
         public Builder(
             ReplicaConnectionProvider connectionProvider,
             ReplicaConsistency consistency,
-            DualCall dualCall,
+            DatabaseCall databaseCall,
             String sql
         ) {
             this.connectionProvider = connectionProvider;
             this.consistency = consistency;
-            this.dualCall = dualCall;
+            this.databaseCall = databaseCall;
             this.sql = sql;
         }
 
@@ -627,7 +632,7 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
             return new ReplicaPreparedStatement(
                 connectionProvider,
                 consistency,
-                dualCall,
+                databaseCall,
                 sql,
                 resultSetType,
                 resultSetConcurrency,
