@@ -1,11 +1,13 @@
 package com.atlassian.db.replica.internal;
 
+import com.atlassian.db.replica.api.reason.RouteDecision;
+
 import java.util.concurrent.atomic.AtomicReference;
 
 public abstract class DecisionAwareReference<T> extends LazyReference<T> {
-    private final AtomicReference<RouteDecisionBuilder> firstCause = new AtomicReference<>();
+    private final AtomicReference<RouteDecision> firstCause = new AtomicReference<>();
 
-    public T get(RouteDecisionBuilder currentCause) {
+    public T get(RouteDecision currentCause) {
         firstCause.compareAndSet(null, currentCause);
         return super.get();
     }
@@ -16,9 +18,9 @@ public abstract class DecisionAwareReference<T> extends LazyReference<T> {
         firstCause.set(null);
     }
 
-    public RouteDecisionBuilder getFirstCause() {
+    public RouteDecision getFirstCause() {
         if (firstCause.get() == null) {
-            throw new IllegalStateException("The decision builder is not initialized");
+            throw new IllegalStateException("The first cause is unknown");
         }
         return firstCause.get();
     }

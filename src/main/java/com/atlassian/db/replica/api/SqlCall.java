@@ -1,6 +1,6 @@
 package com.atlassian.db.replica.api;
 
-import java.sql.*;
+import java.sql.SQLException;
 
 /**
  * Like a {@link java.util.concurrent.Callable}, but with a checked exception.

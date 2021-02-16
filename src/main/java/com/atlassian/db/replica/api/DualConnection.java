@@ -1,7 +1,7 @@
 package com.atlassian.db.replica.api;
 
 import com.atlassian.db.replica.api.circuitbreaker.BreakerState;
-import com.atlassian.db.replica.api.reason.Reason;
+import com.atlassian.db.replica.api.reason.RouteDecision;
 import com.atlassian.db.replica.api.state.NoOpStateListener;
 import com.atlassian.db.replica.internal.ForwardCall;
 import com.atlassian.db.replica.internal.ReadReplicaUnsupportedOperationException;
@@ -9,7 +9,6 @@ import com.atlassian.db.replica.internal.ReplicaCallableStatement;
 import com.atlassian.db.replica.internal.ReplicaConnectionProvider;
 import com.atlassian.db.replica.internal.ReplicaPreparedStatement;
 import com.atlassian.db.replica.internal.ReplicaStatement;
-import com.atlassian.db.replica.internal.RouteDecisionBuilder;
 import com.atlassian.db.replica.internal.circuitbreaker.BreakOnNotSupportedOperations;
 import com.atlassian.db.replica.internal.circuitbreaker.BreakerConnection;
 import com.atlassian.db.replica.internal.circuitbreaker.BreakerHandler;
@@ -39,6 +38,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Executor;
+
+import static com.atlassian.db.replica.api.reason.Reason.RO_API_CALL;
+import static com.atlassian.db.replica.api.reason.Reason.RW_API_CALL;
 
 /**
  * Tries to connect to a replica if the query doesn't write to the database.
@@ -83,8 +85,7 @@ public final class DualConnection implements Connection {
     @Override
     public String nativeSQL(String sql) throws SQLException {
         checkClosed();
-        return connectionProvider.getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL).sql(sql)).nativeSQL(
-            sql);
+        return connectionProvider.getWriteConnection(new RouteDecision(RW_API_CALL).withSql(sql)).nativeSQL(sql);
     }
 
     @Override
@@ -124,7 +125,7 @@ public final class DualConnection implements Connection {
     @Override
     public DatabaseMetaData getMetaData() throws SQLException {
         checkClosed();
-        return connectionProvider.getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL)).getMetaData();
+        return connectionProvider.getWriteConnection(new RouteDecision(RW_API_CALL)).getMetaData();
     }
 
     @Override
@@ -240,25 +241,25 @@ public final class DualConnection implements Connection {
     @Override
     public Savepoint setSavepoint() throws SQLException {
         checkClosed();
-        return connectionProvider.getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL)).setSavepoint();
+        return connectionProvider.getWriteConnection(new RouteDecision(RW_API_CALL)).setSavepoint();
     }
 
     @Override
     public Savepoint setSavepoint(String name) throws SQLException {
         checkClosed();
-        return connectionProvider.getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL)).setSavepoint(name);
+        return connectionProvider.getWriteConnection(new RouteDecision(RW_API_CALL)).setSavepoint(name);
     }
 
     @Override
     public void rollback(Savepoint savepoint) throws SQLException {
         checkClosed();
-        connectionProvider.getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL)).rollback(savepoint);
+        connectionProvider.getWriteConnection(new RouteDecision(RW_API_CALL)).rollback(savepoint);
     }
 
     @Override
     public void releaseSavepoint(Savepoint savepoint) throws SQLException {
         checkClosed();
-        connectionProvider.getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL)).releaseSavepoint(savepoint);
+        connectionProvider.getWriteConnection(new RouteDecision(RW_API_CALL)).releaseSavepoint(savepoint);
     }
 
     @Override
@@ -375,7 +376,7 @@ public final class DualConnection implements Connection {
         if (isClosed()) {
             return false;
         }
-        return connectionProvider.getReadConnection(new RouteDecisionBuilder(Reason.RO_API_CALL)).isValid(timeout);
+        return connectionProvider.getReadConnection(new RouteDecision(RO_API_CALL)).isValid(timeout);
     }
 
     @Override
@@ -420,7 +421,7 @@ public final class DualConnection implements Connection {
     public Array createArrayOf(String typeName, Object[] elements) throws SQLException {
         checkClosed();
         return connectionProvider
-            .getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL))
+            .getWriteConnection(new RouteDecision(RW_API_CALL))
             .createArrayOf(typeName, elements);
     }
 
@@ -439,7 +440,7 @@ public final class DualConnection implements Connection {
     @Override
     public String getSchema() throws SQLException {
         checkClosed();
-        return connectionProvider.getReadConnection(new RouteDecisionBuilder(Reason.RO_API_CALL)).getSchema();
+        return connectionProvider.getReadConnection(new RouteDecision(RO_API_CALL)).getSchema();
     }
 
     @Override

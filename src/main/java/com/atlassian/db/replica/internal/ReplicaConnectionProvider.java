@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.atlassian.db.replica.api.reason.Reason.RO_API_CALL;
+import static com.atlassian.db.replica.api.reason.Reason.RW_API_CALL;
 import static com.atlassian.db.replica.api.state.State.CLOSED;
 import static com.atlassian.db.replica.api.state.State.MAIN;
 
@@ -36,12 +37,12 @@ public class ReplicaConnectionProvider implements AutoCloseable {
         this.consistency = consistency;
     }
 
-    public Connection getWriteConnection(RouteDecisionBuilder decisionBuilder) throws SQLException {
-        return state.getWriteConnection(decisionBuilder);
+    public Connection getWriteConnection(RouteDecision decision) throws SQLException {
+        return state.getWriteConnection(decision);
     }
 
-    public Connection getReadConnection(RouteDecisionBuilder decisionBuilder) throws SQLException {
-        return state.getReadConnection(decisionBuilder);
+    public Connection getReadConnection(RouteDecision decision) throws SQLException {
+        return state.getReadConnection(decision);
     }
 
     public void setTransactionIsolation(Integer transactionIsolation) {
@@ -52,7 +53,7 @@ public class ReplicaConnectionProvider implements AutoCloseable {
         if (parameters.getTransactionIsolation() != null) {
             return parameters.getTransactionIsolation();
         } else {
-            return state.getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL)).getTransactionIsolation();
+            return state.getWriteConnection(new RouteDecision(RW_API_CALL)).getTransactionIsolation();
         }
     }
 
@@ -83,9 +84,9 @@ public class ReplicaConnectionProvider implements AutoCloseable {
     public void setReadOnly(boolean readOnly) throws SQLException {
         isReadOnly = readOnly;
         if (readOnly) {
-            state.getReadConnection(new RouteDecisionBuilder(RO_API_CALL)).setReadOnly(readOnly);
+            state.getReadConnection(new RouteDecision(RO_API_CALL)).setReadOnly(readOnly);
         } else {
-            state.getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL)).setReadOnly(isReadOnly);
+            state.getWriteConnection(new RouteDecision(RW_API_CALL)).setReadOnly(isReadOnly);
         }
     }
 
@@ -114,7 +115,7 @@ public class ReplicaConnectionProvider implements AutoCloseable {
     }
 
     public Integer getHoldability() throws SQLException {
-        return parameters.getHoldability() == null ? state.getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL)).getHoldability() : parameters.getHoldability();
+        return parameters.getHoldability() == null ? state.getWriteConnection(new RouteDecision(RW_API_CALL)).getHoldability() : parameters.getHoldability();
     }
 
     public void setHoldability(Integer holdability) throws SQLException {
@@ -142,7 +143,7 @@ public class ReplicaConnectionProvider implements AutoCloseable {
     }
 
     public <T> T unwrap(Class<T> iface) throws SQLException {
-        final Connection currentConnection = state.getReadConnection(new RouteDecisionBuilder(RO_API_CALL));
+        final Connection currentConnection = state.getReadConnection(new RouteDecision(RO_API_CALL));
         if (iface.isAssignableFrom(currentConnection.getClass())) {
             return iface.cast(currentConnection);
         } else {
@@ -151,7 +152,7 @@ public class ReplicaConnectionProvider implements AutoCloseable {
     }
 
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
-        final Connection currentConnection = state.getReadConnection(new RouteDecisionBuilder(RO_API_CALL));
+        final Connection currentConnection = state.getReadConnection(new RouteDecision(RO_API_CALL));
         if (iface.isAssignableFrom(currentConnection.getClass())) {
             return true;
         } else {
@@ -188,7 +189,7 @@ public class ReplicaConnectionProvider implements AutoCloseable {
 
     private void recordCommit(boolean autoCommit) throws SQLException {
         if (state.getState().equals(MAIN) && !autoCommit) {
-            consistency.write(state.getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL)));
+            consistency.write(state.getWriteConnection(new RouteDecision(RW_API_CALL)));
         }
     }
 

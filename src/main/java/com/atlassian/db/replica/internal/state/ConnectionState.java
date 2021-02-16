@@ -4,7 +4,6 @@ import com.atlassian.db.replica.api.reason.RouteDecision;
 import com.atlassian.db.replica.api.state.State;
 import com.atlassian.db.replica.internal.ConnectionParameters;
 import com.atlassian.db.replica.internal.DecisionAwareReference;
-import com.atlassian.db.replica.internal.RouteDecisionBuilder;
 import com.atlassian.db.replica.internal.Warnings;
 import com.atlassian.db.replica.spi.ConnectionProvider;
 import com.atlassian.db.replica.spi.ReplicaConsistency;
@@ -88,9 +87,9 @@ public final class ConnectionState {
     public Optional<Connection> getConnection() {
         final State state = getState();
         if (state.equals(REPLICA)) {
-            return Optional.of(this.readConnection.get(new RouteDecisionBuilder(RO_API_CALL)));
+            return Optional.of(this.readConnection.get(new RouteDecision(RO_API_CALL)));
         } else if (hasWriteConnection()) {
-            return Optional.of(this.writeConnection.get(new RouteDecisionBuilder(MAIN_CONNECTION_REUSE)));
+            return Optional.of(this.writeConnection.get(new RouteDecision(MAIN_CONNECTION_REUSE)));
         } else {
             return Optional.empty();
         }
@@ -99,9 +98,9 @@ public final class ConnectionState {
     /**
      * Provides a connection that will be used for reading operation. Will use read-replica if possible.
      */
-    public Connection getReadConnection(RouteDecisionBuilder decisionBuilder) throws SQLException {
+    public Connection getReadConnection(RouteDecision decision) throws SQLException {
         final State stateBefore = getState();
-        final Connection connection = prepareReadConnection(decisionBuilder);
+        final Connection connection = prepareReadConnection(decision);
         final State stateAfter = getState();
         if (!stateAfter.equals(stateBefore)) {
             stateListener.transition(stateBefore, stateAfter);
@@ -113,10 +112,10 @@ public final class ConnectionState {
      * Provides a connection that will be used for writing operation. It will always return a connection to the
      * main database.
      */
-    public Connection getWriteConnection(RouteDecisionBuilder decisionBuilder) throws SQLException {
+    public Connection getWriteConnection(RouteDecision decision) throws SQLException {
         final State stateBefore = getState();
         replicaConsistent = true;
-        final Connection connection = prepareMainConnection(decisionBuilder);
+        final Connection connection = prepareMainConnection(decision);
         final State stateAfter = getState();
         if (!stateAfter.equals(stateBefore)) {
             stateListener.transition(stateBefore, stateAfter);
@@ -124,24 +123,24 @@ public final class ConnectionState {
         return connection;
     }
 
-    private Connection prepareMainConnection(RouteDecisionBuilder decisionBuilder) throws SQLException {
+    private Connection prepareMainConnection(RouteDecision decision) throws SQLException {
         if (hasWriteConnection()) {
-            return writeConnection.get(decisionBuilder);
+            return writeConnection.get(decision);
         }
         final Optional<Connection> connection = getConnection();
-        if (connection.isPresent() && connection.get().equals(writeConnection.get(decisionBuilder))) {
+        if (connection.isPresent() && connection.get().equals(writeConnection.get(decision))) {
             readConnection.reset();
-            parameters.initialize(writeConnection.get(decisionBuilder));
+            parameters.initialize(writeConnection.get(decision));
         } else {
-            closeConnection(readConnection, decisionBuilder);
-            parameters.initialize(writeConnection.get(decisionBuilder));
+            closeConnection(readConnection, decision);
+            parameters.initialize(writeConnection.get(decision));
         }
-        return writeConnection.get(decisionBuilder);
+        return writeConnection.get(decision);
     }
 
     public Optional<RouteDecision> getDecision() {
         if (getState().equals(MAIN)) {
-            return Optional.of(writeConnection.getFirstCause().build());
+            return Optional.of(writeConnection.getFirstCause());
         } else {
             return Optional.empty();
         }
@@ -157,9 +156,9 @@ public final class ConnectionState {
         final boolean haWriteConnection = hasWriteConnection();
         isClosed = true;
         if (haWriteConnection) {
-            closeConnection(writeConnection, new RouteDecisionBuilder(RW_API_CALL));
+            closeConnection(writeConnection, new RouteDecision(RW_API_CALL));
         } else if (state.equals(REPLICA)) {
-            closeConnection(readConnection, new RouteDecisionBuilder(RO_API_CALL));
+            closeConnection(readConnection, new RouteDecision(RO_API_CALL));
         }
         final State stateAfter = getState();
         if (!stateAfter.equals(state)) {
@@ -170,42 +169,41 @@ public final class ConnectionState {
     /**
      * Provides a connection that will be used for reading operation. Will use read-replica if possible.
      */
-    private Connection prepareReadConnection(RouteDecisionBuilder decisionBuilder) throws SQLException {
+    private Connection prepareReadConnection(RouteDecision decision) throws SQLException {
         if (parameters.getTransactionIsolation() != null && parameters.getTransactionIsolation() > Connection.TRANSACTION_READ_COMMITTED) {
-            decisionBuilder.reason(HIGH_TRANSACTION_ISOLATION_LEVEL);
-            return prepareMainConnection(decisionBuilder);
+            return prepareMainConnection(decision.withReason(HIGH_TRANSACTION_ISOLATION_LEVEL));
         }
         if (getState().equals(MAIN)) {
-            decisionBuilder.reason(MAIN_CONNECTION_REUSE);
-            decisionBuilder.cause(writeConnection.getFirstCause().build());
-            return writeConnection.get(decisionBuilder);
+            RouteDecision whyMain = decision
+                .withReason(MAIN_CONNECTION_REUSE)
+                .withCause(writeConnection.getFirstCause());
+            return writeConnection.get(whyMain);
         }
         final boolean isNotInitialised = getState().equals(NOT_INITIALISED);
-        if (consistency.isConsistent(() -> readConnection.get(decisionBuilder))) {
+        if (consistency.isConsistent(() -> readConnection.get(decision))) {
             if (getState().equals(COMMITED_MAIN)) {
-                closeConnection(writeConnection, decisionBuilder);
+                closeConnection(writeConnection, decision);
             }
             if (isNotInitialised) {
-                parameters.initialize(readConnection.get(decisionBuilder));
+                parameters.initialize(readConnection.get(decision));
             }
             replicaConsistent = true;
-            return readConnection.get(decisionBuilder);
+            return readConnection.get(decision);
         } else {
             replicaConsistent = false;
-            decisionBuilder.reason(REPLICA_INCONSISTENT);
-            return prepareMainConnection(decisionBuilder);
+            return prepareMainConnection(decision.withReason(REPLICA_INCONSISTENT));
         }
     }
 
     private void closeConnection(
         DecisionAwareReference<Connection> connectionReference,
-        RouteDecisionBuilder decisionBuilder
+        RouteDecision decision
     ) throws SQLException {
         try {
             if (!connectionReference.isInitialized()) {
                 return;
             }
-            final Connection connection = connectionReference.get(decisionBuilder);
+            final Connection connection = connectionReference.get(decision);
             try {
                 warnings.saveWarning(connection.getWarnings());
             } catch (Exception e) {

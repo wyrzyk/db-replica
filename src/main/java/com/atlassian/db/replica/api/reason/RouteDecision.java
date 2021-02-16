@@ -11,7 +11,11 @@ public final class RouteDecision {
     private final String sql;
     private final RouteDecision cause;
 
-    public RouteDecision(String sql, Reason reason, RouteDecision cause) {
+    public RouteDecision(Reason reason) {
+        this(null, reason, null);
+    }
+
+    private RouteDecision(String sql, Reason reason, RouteDecision cause) {
         this.sql = sql;
         this.reason = reason;
         this.cause = cause;
@@ -38,15 +42,26 @@ public final class RouteDecision {
         return Optional.ofNullable(cause);
     }
 
+    public RouteDecision withReason(Reason reason) {
+        return new RouteDecision(sql, reason, cause);
+    }
+
+    public RouteDecision withSql(String sql) {
+        return new RouteDecision(sql, reason, cause);
+    }
+
+    public RouteDecision withCause(RouteDecision cause) {
+        return new RouteDecision(sql, reason, cause);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RouteDecision that = (RouteDecision) o;
-        return Objects.equals(reason, that.reason) && Objects.equals(
-            sql,
-            that.sql
-        ) && Objects.equals(cause, that.cause);
+        return Objects.equals(reason, that.reason)
+            && Objects.equals(sql, that.sql)
+            && Objects.equals(cause, that.cause);
     }
 
     @Override

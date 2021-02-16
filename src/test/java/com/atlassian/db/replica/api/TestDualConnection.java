@@ -1,13 +1,13 @@
 package com.atlassian.db.replica.api;
 
-import com.atlassian.db.replica.api.reason.Reason;
 import com.atlassian.db.replica.api.mocks.ConnectionMock;
 import com.atlassian.db.replica.api.mocks.ConnectionProviderMock;
 import com.atlassian.db.replica.api.mocks.NoOpConnection;
 import com.atlassian.db.replica.api.mocks.NoOpConnectionProvider;
 import com.atlassian.db.replica.api.mocks.ReadOnlyAwareConnection;
 import com.atlassian.db.replica.api.mocks.SingleConnectionProvider;
-import com.atlassian.db.replica.internal.RouteDecisionBuilder;
+import com.atlassian.db.replica.api.reason.Reason;
+import com.atlassian.db.replica.api.reason.RouteDecision;
 import com.atlassian.db.replica.spi.DatabaseCall;
 import com.atlassian.db.replica.spi.ReplicaConsistency;
 import org.junit.Test;
@@ -28,6 +28,7 @@ import static com.atlassian.db.replica.api.mocks.CircularConsistency.permanentCo
 import static com.atlassian.db.replica.api.mocks.CircularConsistency.permanentInconsistency;
 import static com.atlassian.db.replica.api.mocks.ConnectionProviderMock.ConnectionType.MAIN;
 import static com.atlassian.db.replica.api.mocks.ConnectionProviderMock.ConnectionType.REPLICA;
+import static com.atlassian.db.replica.api.reason.Reason.*;
 import static java.sql.Connection.TRANSACTION_SERIALIZABLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -229,7 +230,7 @@ public class TestDualConnection {
         connection.prepareStatement(SELECT_FOR_UPDATE).executeQuery();
         verify(databaseCall).call(
             any(),
-            eq(new RouteDecisionBuilder(Reason.LOCK).sql(SELECT_FOR_UPDATE).build())
+            eq(new RouteDecision(Reason.LOCK).withSql(SELECT_FOR_UPDATE))
         );
     }
 
@@ -267,7 +268,7 @@ public class TestDualConnection {
 
         assertThat(connectionProvider.getProvidedConnectionTypes())
             .containsOnly(MAIN);
-        verify(databaseCall).call(any(), eq(new RouteDecisionBuilder(Reason.WRITE_OPERATION).sql(sql).build()));
+        verify(databaseCall).call(any(), eq(new RouteDecision(WRITE_OPERATION).withSql(sql)));
     }
 
     @Test
@@ -656,7 +657,7 @@ public class TestDualConnection {
             .containsOnly(REPLICA);
         verify(databaseCall).call(
             any(),
-            eq(new RouteDecisionBuilder(Reason.READ_OPERATION).sql(SIMPLE_QUERY).build())
+            eq(new RouteDecision(Reason.READ_OPERATION).withSql(SIMPLE_QUERY))
         );
     }
 
@@ -676,7 +677,7 @@ public class TestDualConnection {
             .containsOnly(REPLICA, MAIN);
         verify(databaseCall).call(
             any(),
-            eq(new RouteDecisionBuilder(Reason.REPLICA_INCONSISTENT).sql(SIMPLE_QUERY).build())
+            eq(new RouteDecision(Reason.REPLICA_INCONSISTENT).withSql(SIMPLE_QUERY))
         );
     }
 
@@ -694,7 +695,7 @@ public class TestDualConnection {
 
         assertThat(connectionProvider.getProvidedConnectionTypes())
             .containsOnly(MAIN);
-        verify(databaseCall).call(any(), eq(new RouteDecisionBuilder(Reason.RW_API_CALL).sql(SIMPLE_QUERY).build()));
+        verify(databaseCall).call(any(), eq(new RouteDecision(RW_API_CALL).withSql(SIMPLE_QUERY)));
     }
 
     @Test
@@ -715,12 +716,9 @@ public class TestDualConnection {
         verify(databaseCall).call(
             any(),
             eq(
-                new RouteDecisionBuilder(Reason.MAIN_CONNECTION_REUSE)
-                    .sql(SIMPLE_QUERY)
-                    .cause(
-                        new RouteDecisionBuilder(Reason.RW_API_CALL).sql(SIMPLE_QUERY).build()
-                    )
-                    .build()
+                new RouteDecision(MAIN_CONNECTION_REUSE)
+                    .withSql(SIMPLE_QUERY)
+                    .withCause(new RouteDecision(RW_API_CALL).withSql(SIMPLE_QUERY))
             )
         );
     }
@@ -860,7 +858,7 @@ public class TestDualConnection {
         verify(connectionProvider.singleProvidedConnection()).setTransactionIsolation(TRANSACTION_SERIALIZABLE);
         verify(databaseCall).call(
             any(),
-            eq(new RouteDecisionBuilder(Reason.HIGH_TRANSACTION_ISOLATION_LEVEL).sql(SIMPLE_QUERY).build())
+            eq(new RouteDecision(HIGH_TRANSACTION_ISOLATION_LEVEL).withSql(SIMPLE_QUERY))
         );
     }
 

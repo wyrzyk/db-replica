@@ -1,6 +1,7 @@
 package com.atlassian.db.replica.internal;
 
 import com.atlassian.db.replica.api.reason.Reason;
+import com.atlassian.db.replica.api.reason.RouteDecision;
 import com.atlassian.db.replica.spi.DatabaseCall;
 import com.atlassian.db.replica.spi.ReplicaConsistency;
 
@@ -26,6 +27,7 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.Calendar;
 
+import static com.atlassian.db.replica.api.reason.Reason.READ_OPERATION;
 import static com.atlassian.db.replica.api.reason.Reason.RW_API_CALL;
 
 public class ReplicaPreparedStatement extends ReplicaStatement implements PreparedStatement {
@@ -81,25 +83,25 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
     @Override
     public ResultSet executeQuery() throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(Reason.READ_OPERATION).sql(sql);
-        final PreparedStatement statement = getReadStatement(decisionBuilder);
-        return execute(statement::executeQuery, decisionBuilder.build());
+        final RouteDecision decision = new RouteDecision(READ_OPERATION).withSql(sql);
+        final PreparedStatement statement = getReadStatement(decision);
+        return execute(statement::executeQuery, decision);
     }
 
     @Override
     public int executeUpdate() throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(this.sql);
-        final PreparedStatement statement = getWriteStatement(decisionBuilder);
-        return execute(statement::executeUpdate, decisionBuilder.build());
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(this.sql);
+        final PreparedStatement statement = getWriteStatement(decision);
+        return execute(statement::executeUpdate, decision);
     }
 
     @Override
     public long executeLargeUpdate() throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(this.sql);
-        final PreparedStatement statement = getWriteStatement(decisionBuilder);
-        return execute(statement::executeLargeUpdate, decisionBuilder.build());
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(this.sql);
+        final PreparedStatement statement = getWriteStatement(decision);
+        return execute(statement::executeLargeUpdate, decision);
     }
 
     @Override
@@ -266,9 +268,9 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
     @Override
     public boolean execute() throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(this.sql);
-        final PreparedStatement statement = getWriteStatement(decisionBuilder);
-        return execute(statement::execute, decisionBuilder.build());
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(this.sql);
+        final PreparedStatement statement = getWriteStatement(decision);
+        return execute(statement::execute, decision);
     }
 
     @Override
@@ -376,7 +378,7 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
         if (currentStatement != null) {
             return currentStatement.getParameterMetaData();
         } else {
-            return getWriteStatement(new RouteDecisionBuilder(RW_API_CALL)).getParameterMetaData();
+            return getWriteStatement(new RouteDecision(RW_API_CALL)).getParameterMetaData();
         }
     }
 
@@ -546,13 +548,13 @@ public class ReplicaPreparedStatement extends ReplicaStatement implements Prepar
     }
 
     @Override
-    public PreparedStatement getWriteStatement(RouteDecisionBuilder decisionBuilder) {
-        return (PreparedStatement) super.getWriteStatement(decisionBuilder);
+    public PreparedStatement getWriteStatement(RouteDecision decision) {
+        return (PreparedStatement) super.getWriteStatement(decision);
     }
 
     @Override
-    public PreparedStatement getReadStatement(RouteDecisionBuilder decisionBuilder) {
-        return (PreparedStatement) super.getReadStatement(decisionBuilder);
+    public PreparedStatement getReadStatement(RouteDecision decision) {
+        return (PreparedStatement) super.getReadStatement(decision);
     }
 
     @Override

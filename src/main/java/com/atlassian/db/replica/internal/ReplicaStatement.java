@@ -26,19 +26,16 @@ import static com.atlassian.db.replica.api.state.State.MAIN;
 import static java.lang.Math.min;
 
 public class ReplicaStatement implements Statement {
+    final String methodBracketStart = Pattern.quote("(");
     private final ReplicaConnectionProvider connectionProvider;
     private final Integer resultSetType;
     private final Integer resultSetConcurrency;
     private final Integer resultSetHoldability;
-    private Statement currentStatement;
-    private volatile boolean isClosed = false;
     @SuppressWarnings("rawtypes")
     private final List<StatementOperation> operations = new ArrayList<>();
     private final List<StatementOperation<Statement>> batches = new ArrayList<>();
     private final ReplicaConsistency consistency;
     private final DatabaseCall databaseCall;
-    final String methodBracketStart = Pattern.quote("(");
-    private boolean isWriteOperation = true;
     private final DecisionAwareReference<Statement> readStatement = new DecisionAwareReference<Statement>() {
         @Override
         public Statement create() throws Exception {
@@ -51,6 +48,9 @@ public class ReplicaStatement implements Statement {
             return createStatement(connectionProvider.getWriteConnection(getFirstCause()));
         }
     };
+    private Statement currentStatement;
+    private volatile boolean isClosed = false;
+    private boolean isWriteOperation = true;
 
     public ReplicaStatement(
         ReplicaConsistency consistency,
@@ -68,23 +68,28 @@ public class ReplicaStatement implements Statement {
         this.resultSetHoldability = resultSetHoldability;
     }
 
+    public static Builder builder(
+        ReplicaConnectionProvider connectionProvider,
+        ReplicaConsistency consistency,
+        DatabaseCall databaseCall
+    ) {
+        return new Builder(connectionProvider, consistency, databaseCall);
+    }
+
     @Override
     public ResultSet executeQuery(String sql) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(READ_OPERATION).sql(sql);
-        final Statement statement = getReadStatement(decisionBuilder);
-        return execute(() -> statement.executeQuery(sql), decisionBuilder.build());
+        final RouteDecision decision = new RouteDecision(READ_OPERATION).withSql(sql);
+        final Statement statement = getReadStatement(decision);
+        return execute(() -> statement.executeQuery(sql), decision);
     }
 
     @Override
     public int executeUpdate(String sql) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> statement.executeUpdate(sql),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement statement = getWriteStatement(decision);
+        return execute(() -> statement.executeUpdate(sql), decision);
     }
 
     @Override
@@ -105,7 +110,7 @@ public class ReplicaStatement implements Statement {
     @Override
     public int getMaxFieldSize() throws SQLException {
         checkClosed();
-        return getWriteStatement(new RouteDecisionBuilder(RW_API_CALL)).getMaxFieldSize();
+        return getWriteStatement(new RouteDecision(RW_API_CALL)).getMaxFieldSize();
     }
 
     @Override
@@ -119,7 +124,7 @@ public class ReplicaStatement implements Statement {
     @Override
     public int getMaxRows() throws SQLException {
         checkClosed();
-        return getWriteStatement(new RouteDecisionBuilder(RW_API_CALL)).getMaxRows();
+        return getWriteStatement(new RouteDecision(RW_API_CALL)).getMaxRows();
     }
 
     @Override
@@ -185,12 +190,9 @@ public class ReplicaStatement implements Statement {
     @Override
     public boolean execute(String sql) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> statement.execute(sql),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement statement = getWriteStatement(decision);
+        return execute(() -> statement.execute(sql), decision);
     }
 
     @Override
@@ -221,6 +223,12 @@ public class ReplicaStatement implements Statement {
     }
 
     @Override
+    public int getFetchDirection() throws SQLException {
+        checkClosed();
+        throw new ReadReplicaUnsupportedOperationException();
+    }
+
+    @Override
     public void setFetchDirection(int direction) throws SQLException {
         checkClosed();
         addOperation(
@@ -229,7 +237,7 @@ public class ReplicaStatement implements Statement {
     }
 
     @Override
-    public int getFetchDirection() throws SQLException {
+    public int getFetchSize() throws SQLException {
         checkClosed();
         throw new ReadReplicaUnsupportedOperationException();
     }
@@ -238,12 +246,6 @@ public class ReplicaStatement implements Statement {
     public void setFetchSize(int rows) throws SQLException {
         checkClosed();
         addOperation(statement -> statement.setFetchSize(rows));
-    }
-
-    @Override
-    public int getFetchSize() throws SQLException {
-        checkClosed();
-        throw new ReadReplicaUnsupportedOperationException();
     }
 
     @Override
@@ -276,15 +278,15 @@ public class ReplicaStatement implements Statement {
     @Override
     public int[] executeBatch() throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(statement::executeBatch, decisionBuilder.build());
+        final RouteDecision decision = new RouteDecision(RW_API_CALL);
+        final Statement statement = getWriteStatement(decision);
+        return execute(statement::executeBatch, decision);
     }
 
     @Override
     public Connection getConnection() throws SQLException {
         checkClosed();
-        return connectionProvider.getWriteConnection(new RouteDecisionBuilder(Reason.RW_API_CALL));
+        return connectionProvider.getWriteConnection(new RouteDecision(Reason.RW_API_CALL));
     }
 
     @Override
@@ -302,67 +304,49 @@ public class ReplicaStatement implements Statement {
     @Override
     public int executeUpdate(String sql, int autoGeneratedKeys) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> statement.executeUpdate(sql, autoGeneratedKeys),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement statement = getWriteStatement(decision);
+        return execute(() -> statement.executeUpdate(sql, autoGeneratedKeys), decision);
     }
 
     @Override
     public int executeUpdate(String sql, int[] columnIndexes) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> statement.executeUpdate(sql, columnIndexes),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement statement = getWriteStatement(decision);
+        return execute(() -> statement.executeUpdate(sql, columnIndexes), decision);
     }
 
     @Override
     public int executeUpdate(String sql, String[] columnNames) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> statement.executeUpdate(sql, columnNames),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement statement = getWriteStatement(decision);
+        return execute(() -> statement.executeUpdate(sql, columnNames), decision);
     }
 
     @Override
     public boolean execute(String sql, int autoGeneratedKeys) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> statement.execute(sql, autoGeneratedKeys),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement statement = getWriteStatement(decision);
+        return execute(() -> statement.execute(sql, autoGeneratedKeys), decision);
     }
 
     @Override
     public boolean execute(String sql, int[] columnIndexes) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement state = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> state.execute(sql, columnIndexes),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement state = getWriteStatement(decision);
+        return execute(() -> state.execute(sql, columnIndexes), decision);
     }
 
     @Override
     public boolean execute(String sql, String[] columnNames) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> statement.execute(sql, columnNames),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement statement = getWriteStatement(decision);
+        return execute(() -> statement.execute(sql, columnNames), decision);
     }
 
     @Override
@@ -377,17 +361,17 @@ public class ReplicaStatement implements Statement {
     }
 
     @Override
+    public boolean isPoolable() throws SQLException {
+        checkClosed();
+        throw new ReadReplicaUnsupportedOperationException();
+    }
+
+    @Override
     public void setPoolable(boolean poolable) throws SQLException {
         checkClosed();
         addOperation(
             (StatementOperation<Statement>) statement -> statement.setPoolable(poolable)
         );
-    }
-
-    @Override
-    public boolean isPoolable() throws SQLException {
-        checkClosed();
-        throw new ReadReplicaUnsupportedOperationException();
     }
 
     @Override
@@ -435,6 +419,12 @@ public class ReplicaStatement implements Statement {
     }
 
     @Override
+    public long getLargeMaxRows() throws SQLException {
+        checkClosed();
+        throw new ReadReplicaUnsupportedOperationException();
+    }
+
+    @Override
     public void setLargeMaxRows(long max) throws SQLException {
         checkClosed();
         addOperation(
@@ -443,67 +433,49 @@ public class ReplicaStatement implements Statement {
     }
 
     @Override
-    public long getLargeMaxRows() throws SQLException {
-        checkClosed();
-        throw new ReadReplicaUnsupportedOperationException();
-    }
-
-    @Override
     public long[] executeLargeBatch() throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            statement::executeLargeBatch,
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL);
+        final Statement statement = getWriteStatement(decision);
+        return execute(statement::executeLargeBatch, decision);
     }
 
     @Override
     public long executeLargeUpdate(String sql) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> statement.executeLargeUpdate(sql),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement statement = getWriteStatement(decision);
+        return execute(() -> statement.executeLargeUpdate(sql), decision);
     }
 
     @Override
     public long executeLargeUpdate(String sql, int autoGeneratedKeys) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> statement.executeLargeUpdate(sql, autoGeneratedKeys),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement statement = getWriteStatement(decision);
+        return execute(() -> statement.executeLargeUpdate(sql, autoGeneratedKeys), decision);
     }
 
     @Override
     public long executeLargeUpdate(String sql, int[] columnIndexes) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> statement.executeLargeUpdate(sql, columnIndexes),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement statement = getWriteStatement(decision);
+        return execute(() -> statement.executeLargeUpdate(sql, columnIndexes), decision);
     }
 
     @Override
     public long executeLargeUpdate(String sql, String[] columnNames) throws SQLException {
         checkClosed();
-        final RouteDecisionBuilder decisionBuilder = new RouteDecisionBuilder(RW_API_CALL).sql(sql);
-        final Statement statement = getWriteStatement(decisionBuilder);
-        return execute(
-            () -> statement.executeLargeUpdate(sql, columnNames),
-            decisionBuilder.build()
-        );
+        final RouteDecision decision = new RouteDecision(RW_API_CALL).withSql(sql);
+        final Statement statement = getWriteStatement(decision);
+        return execute(() -> statement.executeLargeUpdate(sql, columnNames), decision);
     }
 
-    <T> T execute(final SqlCall<T> call, final RouteDecision routeDecision) throws SQLException {
+    <T> T execute(
+        final SqlCall<T> call,
+        final com.atlassian.db.replica.api.reason.RouteDecision routeDecision
+    ) throws SQLException {
         final T result = databaseCall.call(call, routeDecision);
         if (routeDecision.getReason().isRunOnMain() && isWriteOperation) {
             recordWriteAfterQueryExecution();
@@ -540,14 +512,6 @@ public class ReplicaStatement implements Statement {
         operations.clear();
     }
 
-    public static Builder builder(
-        ReplicaConnectionProvider connectionProvider,
-        ReplicaConsistency consistency,
-        DatabaseCall databaseCall
-    ) {
-        return new Builder(connectionProvider, consistency, databaseCall);
-    }
-
     void recordWriteAfterQueryExecution() throws SQLException {
         final Connection connection = currentStatement.getConnection();
         if (connection.getAutoCommit()) {
@@ -555,25 +519,26 @@ public class ReplicaStatement implements Statement {
         }
     }
 
-    public Statement getReadStatement(RouteDecisionBuilder decisionBuilder) {
+    public Statement getReadStatement(RouteDecision why) {
         if (connectionProvider.getState().equals(MAIN)) {
-            decisionBuilder.reason(MAIN_CONNECTION_REUSE);
-            connectionProvider.getStateDecision().ifPresent(decisionBuilder::cause);
-            return prepareWriteStatement(decisionBuilder);
+            RouteDecision whyMain = why.withReason(MAIN_CONNECTION_REUSE);
+            RouteDecision whyMainWithCause = connectionProvider
+                .getStateDecision()
+                .map(whyMain::withCause)
+                .orElse(whyMain);
+            return prepareWriteStatement(whyMainWithCause);
         }
-        final String sql = decisionBuilder.getSql();
+        final String sql = why.getSql().orElse(null);
         isWriteOperation = isFunctionCall(sql) || isUpdate(sql) || isDelete(sql);
         if (isWriteOperation) {
-            decisionBuilder.reason(WRITE_OPERATION);
-            return prepareWriteStatement(decisionBuilder);
+            return prepareWriteStatement(why.withReason(WRITE_OPERATION));
         }
 
         if (isSelectForUpdate(sql)) {
-            decisionBuilder.reason(LOCK);
-            return prepareWriteStatement(decisionBuilder);
+            return prepareWriteStatement(why.withReason(LOCK));
         }
 
-        setCurrentStatement(getCurrentStatement() != null ? getCurrentStatement() : readStatement.get(decisionBuilder));
+        setCurrentStatement(getCurrentStatement() != null ? getCurrentStatement() : readStatement.get(why));
         performOperations();
         return getCurrentStatement();
     }
@@ -612,13 +577,13 @@ public class ReplicaStatement implements Statement {
         return sql.substring(7, min(sql.length(), 80));
     }
 
-    protected Statement getWriteStatement(RouteDecisionBuilder decisionBuilder) {
+    protected Statement getWriteStatement(RouteDecision decision) {
         isWriteOperation = true;
-        return prepareWriteStatement(decisionBuilder);
+        return prepareWriteStatement(decision);
     }
 
-    private Statement prepareWriteStatement(RouteDecisionBuilder decisionBuilder) {
-        setCurrentStatement(writeStatement.get(decisionBuilder));
+    private Statement prepareWriteStatement(RouteDecision decision) {
+        setCurrentStatement(writeStatement.get(decision));
         performOperations();
         return getCurrentStatement();
     }
@@ -636,12 +601,18 @@ public class ReplicaStatement implements Statement {
     private Collection<Statement> allStatements() {
         final List<Statement> statements = new ArrayList<>();
         if (readStatement.isInitialized()) {
-            statements.add(readStatement.get(new RouteDecisionBuilder(RO_API_CALL)));
+            statements.add(readStatement.get(new RouteDecision(RO_API_CALL)));
         }
         if (writeStatement.isInitialized()) {
-            statements.add(writeStatement.get(new RouteDecisionBuilder(RW_API_CALL)));
+            statements.add(writeStatement.get(new RouteDecision(RW_API_CALL)));
         }
         return statements;
+    }
+
+    protected void checkClosed() throws SQLException {
+        if (isClosed()) {
+            throw new SQLException("This connection has been closed.");
+        }
     }
 
     public static class Builder {
@@ -688,11 +659,4 @@ public class ReplicaStatement implements Statement {
             );
         }
     }
-
-    protected void checkClosed() throws SQLException {
-        if (isClosed()) {
-            throw new SQLException("This connection has been closed.");
-        }
-    }
-
 }
