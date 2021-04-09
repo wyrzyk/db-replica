@@ -77,7 +77,7 @@ public class PostgresConnectionProvider implements ConnectionProvider, AutoClose
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         cleanUp();
     }
 

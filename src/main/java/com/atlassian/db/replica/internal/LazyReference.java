@@ -1,31 +1,34 @@
 package com.atlassian.db.replica.internal;
 
 
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 public abstract class LazyReference<T> implements Supplier<T> {
-    private final AtomicReference<T> reference = new AtomicReference<>();
+    private T value = null;
+    private final Object lock = new Object();
 
     protected abstract T create() throws Exception;
 
     public boolean isInitialized() {
-        return reference.get() != null;
+        return value != null;
     }
 
     @Override
     public T get() {
-        if (!isInitialized()) {
-            try {
-                reference.compareAndSet(null, create());
-            } catch (Exception e) {
-                throw new RuntimeException(e);
+        try {
+            synchronized (lock) {
+                if (!isInitialized()) {
+                    value = create();
+                }
             }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-        return reference.get();
+        return value;
     }
 
     public void reset() {
-        reference.set(null);
+        value = null;
     }
+
 }

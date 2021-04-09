@@ -15,7 +15,7 @@ public class LsnReplicaConsistencyTest {
 
     @Test
     public void shouldBeConsistentIfReplicaGivesTheSameLsnAsMain() throws SQLException {
-        final ReplicaConsistency consistency = new LsnReplicaConsistency();
+        final ReplicaConsistency consistency = new LsnReplicaConsistency10();
         consistency.write(getConnection("16/3002D50"));
 
         final boolean isConsistent = consistency.isConsistent(getConnectionSupplier("16/3002D50"));
@@ -25,7 +25,7 @@ public class LsnReplicaConsistencyTest {
 
     @Test
     public void shouldNotBeConsistentAfterFailedWrite() throws SQLException {
-        final ReplicaConsistency consistency = new LsnReplicaConsistency();
+        final ReplicaConsistency consistency = new LsnReplicaConsistency10();
         final Connection main = mock(Connection.class);
         when(main.prepareStatement(anyString())).thenThrow(new SQLException("Main connection fails"));
 
@@ -38,7 +38,7 @@ public class LsnReplicaConsistencyTest {
 
     @Test
     public void shouldRecoverAfterFailedWrite() throws SQLException {
-        final ReplicaConsistency consistency = new LsnReplicaConsistency();
+        final ReplicaConsistency consistency = new LsnReplicaConsistency10();
         final Connection main = mock(Connection.class);
         when(main.prepareStatement(anyString())).thenThrow(new SQLException("Main connection fails"));
 
@@ -52,7 +52,7 @@ public class LsnReplicaConsistencyTest {
 
     @Test
     public void shouldNotBeConsistentBeforeTheFirstWrite() {
-        final ReplicaConsistency consistency = new LsnReplicaConsistency();
+        final ReplicaConsistency consistency = new LsnReplicaConsistency10();
         final Supplier<Connection> replica = mock(ConnectionSupplier.class);
 
         final boolean isConsistent = consistency.isConsistent(replica);
@@ -62,7 +62,7 @@ public class LsnReplicaConsistencyTest {
 
     @Test
     public void shouldNotBeConsistentIfReplicaConnectionFails() throws SQLException {
-        final ReplicaConsistency consistency = new LsnReplicaConsistency();
+        final ReplicaConsistency consistency = new LsnReplicaConsistency10();
         final Connection mainConnection = getConnection("16/3002D50");
         consistency.write(mainConnection);
         final Connection replica = mock(Connection.class);

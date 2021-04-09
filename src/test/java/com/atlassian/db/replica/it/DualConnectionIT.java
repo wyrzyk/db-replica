@@ -1,40 +1,36 @@
 package com.atlassian.db.replica.it;
 
+import com.atlassian.db.replica.SequenceReplicaConsistency;
 import com.atlassian.db.replica.api.DualConnection;
+import com.atlassian.db.replica.api.PessimisticPropagationConsistency;
 import com.atlassian.db.replica.api.mocks.CircularConsistency;
-import com.atlassian.db.replica.internal.LsnReplicaConsistency;
+import com.atlassian.db.replica.internal.LsnReplicaConsistency10;
+import com.atlassian.db.replica.internal.LsnReplicaConsistency9;
 import com.atlassian.db.replica.it.consistency.WaitingReplicaConsistency;
+import com.atlassian.db.replica.spi.Cache;
+import com.atlassian.db.replica.spi.ReplicaConsistency;
 import com.google.common.collect.ImmutableList;
 import org.junit.Test;
 import org.postgresql.jdbc.PgConnection;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.SQLFeatureNotSupportedException;
-import java.sql.Savepoint;
-import java.sql.Statement;
+import java.sql.*;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.Properties;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 
 import static com.atlassian.db.replica.api.Queries.SIMPLE_QUERY;
-import static java.sql.ResultSet.CLOSE_CURSORS_AT_COMMIT;
-import static java.sql.ResultSet.CONCUR_READ_ONLY;
-import static java.sql.ResultSet.TYPE_FORWARD_ONLY;
+import static java.sql.ResultSet.*;
 import static java.sql.Statement.NO_GENERATED_KEYS;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.assertj.core.api.Assertions.*;
 
 public class DualConnectionIT {
 
     @Test
     public void shouldUseReplica() throws SQLException {
         try (PostgresConnectionProvider connectionProvider = new PostgresConnectionProvider()) {
-            Connection connection = DualConnection.builder(connectionProvider, new LsnReplicaConsistency()).build();
+            Connection connection = DualConnection.builder(connectionProvider, new LsnReplicaConsistency10()).build();
 
             try (final ResultSet resultSet = connection.prepareStatement("SELECT 1;").executeQuery()) {
                 resultSet.next();
@@ -62,7 +58,7 @@ public class DualConnectionIT {
     @Test
     public void shouldPreserveReadOnlyModeWhileSwitchingFromReplicaToMain() throws SQLException {
         try (PostgresConnectionProvider connectionProvider = new PostgresConnectionProvider()) {
-            final WaitingReplicaConsistency consistency = new WaitingReplicaConsistency(new LsnReplicaConsistency());
+            final WaitingReplicaConsistency consistency = new WaitingReplicaConsistency(new LsnReplicaConsistency10());
             createTable(DualConnection.builder(connectionProvider, consistency).build());
             final Connection connection = DualConnection.builder(
                 connectionProvider,
@@ -86,8 +82,8 @@ public class DualConnectionIT {
     @Test
     public void shouldRunNextValOnMainDatabase() throws SQLException {
         try (PostgresConnectionProvider connectionProvider = new PostgresConnectionProvider()) {
-            final WaitingReplicaConsistency consistency = new WaitingReplicaConsistency(new LsnReplicaConsistency());
-            createTestSequence(DualConnection.builder(connectionProvider, consistency).build());
+            final WaitingReplicaConsistency consistency = new WaitingReplicaConsistency(new LsnReplicaConsistency10());
+            createSequence(DualConnection.builder(connectionProvider, consistency).build(), "test_sequence");
             final Connection connection = DualConnection.builder(connectionProvider, consistency).build();
 
             connection.prepareStatement("SELECT nextval('test_sequence');").executeQuery();
@@ -116,7 +112,7 @@ public class DualConnectionIT {
         try (PostgresConnectionProvider connectionProvider = new PostgresConnectionProvider()) {
             final Connection connection = DualConnection.builder(
                 connectionProvider,
-                new LsnReplicaConsistency()
+                new LsnReplicaConsistency10()
             ).build();
             connection.createStatement();
             connection.prepareStatement(SIMPLE_QUERY);
@@ -185,9 +181,9 @@ public class DualConnectionIT {
         }
     }
 
-    private void createTestSequence(Connection connection) throws SQLException {
+    private void createSequence(Connection connection, String sequenceName) throws SQLException {
         try (final Statement mainStatement = connection.createStatement()) {
-            mainStatement.execute("CREATE SEQUENCE test_sequence;");
+            mainStatement.execute("CREATE SEQUENCE " + sequenceName + ";");
         }
     }
 
@@ -195,6 +191,92 @@ public class DualConnectionIT {
         try (final Statement mainStatement = connection.createStatement()) {
             mainStatement.execute("CREATE TABLE foo (bar VARCHAR ( 255 ));");
         }
+    }
+
+    @Test
+    public void benchmarkReplicaConsistencies() throws InterruptedException, ExecutionException, SQLException {
+        final LsnReplicaConsistency10 lsnConsistency = new LsnReplicaConsistency10(Cache.cacheMonotonicValuesInMemory());
+        final LsnReplicaConsistency9 lsnConsistency9 = new LsnReplicaConsistency9(Cache.cacheMonotonicValuesInMemory());
+        final ReplicaConsistency pessimisticPropagationConsistency = new PessimisticPropagationConsistency.Builder().assumeMaxPropagation(
+            Duration.ZERO).build();
+        final SequenceReplicaConsistency manualLsn = new SequenceReplicaConsistency("manualLsn",
+            Cache.cacheMonotonicValuesInMemory());
+//        benchmarkReplicaConsistency(manualLsn);
+//        benchmarkReplicaConsistency(lsnConsistency);
+        benchmarkReplicaConsistency(lsnConsistency9);
+//        benchmarkReplicaConsistency(pessimisticPropagationConsistency);
+    }
+
+    public void benchmarkReplicaConsistency(ReplicaConsistency consistency) throws SQLException, InterruptedException, ExecutionException {
+        final int concurrencyLevel = 100;
+        final int times = 5000;
+        final ExecutorService executor = Executors.newFixedThreadPool(concurrencyLevel + 1);
+        final ExecutorCompletionService<Duration> completionService = new ExecutorCompletionService<>(
+            executor);
+
+        try (PostgresConnectionProvider connectionProvider = new PostgresConnectionProvider()) {
+            final Connection mainConnection = DualConnection.builder(
+                connectionProvider,
+                consistency
+            ).build();
+            createSequence(mainConnection, "manualLsn");
+            createSequence(mainConnection, "sequence1");
+            executor.submit(() -> databaseModification(mainConnection));
+            Duration totalExecutionTime = Duration.ZERO;
+            for (int i = 0; i < concurrencyLevel; i++) {
+
+                completionService.submit(() -> {
+                    final Connection replicaConnection = connectionProvider.getReplicaConnection();
+                    final Duration duration = measureConsistencyChecks(consistency, replicaConnection, times);
+                    replicaConnection.close();
+                    return duration;
+                });
+            }
+            for (int i = 0; i < concurrencyLevel; i++) {
+                final Future<Duration> executionTimeFeature = completionService.take();
+                totalExecutionTime = totalExecutionTime.plus(executionTimeFeature.get());
+            }
+            System.out.println(consistency + "   Total: " + totalExecutionTime + ". Mean: " + totalExecutionTime.dividedBy(
+                times * concurrencyLevel).toMillis());
+        } finally {
+            executor.shutdown();
+        }
+
+    }
+
+    private void databaseModification(Connection connection) {
+        final Statement mainStatement;
+        try {
+            mainStatement = connection.createStatement();
+            while (true) {
+                try {
+                    final boolean execute = mainStatement.execute("SELECT NEXTVAL('sequence1');");
+                    assert execute;
+                } catch (Exception e) {
+                    //ignore
+                }
+            }
+        } catch (Exception exception) {
+            exception.printStackTrace();
+        }
+    }
+
+
+    private Duration measureConsistencyChecks(ReplicaConsistency consistency, Connection connection, int count) {
+        Duration total = Duration.ZERO;
+        for (int i = 0; i < count; i++) {
+            total = total.plus(measureConsistency(
+                consistency,
+                connection
+            ));
+        }
+        return total;
+    }
+
+    private Duration measureConsistency(ReplicaConsistency consistency, Connection connection) {
+        final Instant start = Instant.now();
+        consistency.isConsistent(() -> connection);
+        return Duration.between(start, Instant.now());
     }
 
 }

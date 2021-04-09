@@ -7,7 +7,9 @@ import org.postgresql.replication.LogSequenceNumber;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -22,9 +24,16 @@ import java.util.function.Supplier;
  * It's a DB specific implementation used in integration tests.
  */
 @ThreadSafe
-public class LsnReplicaConsistency implements ReplicaConsistency {
+public class LsnReplicaConsistency10 implements ReplicaConsistency {
+    private final Cache<LogSequenceNumber> lastWrite;
 
-    private final Cache<LogSequenceNumber> lastWrite = Cache.cacheMonotonicValuesInMemory();
+    public LsnReplicaConsistency10(Cache<LogSequenceNumber> lastWrite) {
+        this.lastWrite = lastWrite;
+    }
+
+    public LsnReplicaConsistency10(){
+        this.lastWrite =  Cache.cacheMonotonicValuesInMemory();
+    }
 
     @Override
     public void write(Connection main) {
@@ -63,12 +72,12 @@ public class LsnReplicaConsistency implements ReplicaConsistency {
         }
     }
 
-    private PreparedStatement prepareQuery(Connection connection) throws Exception {
+    private PreparedStatement prepareQuery(Connection connection) throws SQLException {
         return connection.prepareStatement(
-            "SELECT\n" +
-                "CASE WHEN pg_is_in_recovery()\n" +
-                "   THEN pg_last_xlog_replay_location()\n" +
-                "   ELSE pg_current_xlog_location()\n" +
+            "SELECT " +
+                "CASE WHEN pg_is_in_recovery() " +
+                "   THEN pg_last_wal_replay_lsn() " +
+                "   ELSE pg_current_wal_lsn() " +
                 "END AS lsn;"
         );
     }
